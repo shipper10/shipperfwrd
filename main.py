@@ -7,7 +7,7 @@ from telethon.tl.types import PeerChannel
 api_id = '26075519'  # قم بوضع الـ API_ID هنا
 api_hash = '5819201f8de7de4ea548335e78a59696'  # قم بوضع الـ API_HASH هنا
 phone_number = '+249904085742'  # رقم هاتفك
-target_group_id = '+249904085742'  # قم بوضع الـ ID الخاص بالمجموعة التي تريد إعادة التوجيه إليها
+target_group_id = '-1002686274384'  # قم بوضع الـ ID الخاص بالمجموعة التي تريد إعادة التوجيه إليها
 
 # اسم الجلسة
 session_name = 'session_name'
@@ -20,16 +20,14 @@ processed_messages = set()
 
 # قائمة القنوات التي تريد إعادة التوجيه منها
 channels_to_forward = [
-    # ضع هنا الـ ID الخاص بالقنوات التي تريد إعادة توجيه الرسائل منها
-    '-1001595923708',
     '-1001668684235',
-    # يمكنك إضافة المزيد من القنوات حسب الحاجة
+    '-1001595923708',
 ]
 
 async def main():
     try:
         # التحقق مما إذا كانت الجلسة موجودة أو لا
-        if not client.is_user_authorized():
+        if not await client.is_user_authorized():
             # إذا لم تكن الجلسة موجودة، أرسل طلب الكود للتحقق من الرقم
             await client.send_code_request(phone_number)
             # قم بإدخال الرمز يدويًا لتوثيق الدخول
@@ -62,4 +60,5 @@ async def main():
 
 # تشغيل العميل
 if __name__ == "__main__":
+    # يجب التأكد من أن الكود يعمل باستخدام asyncio بشكل صحيح
     asyncio.run(main())
