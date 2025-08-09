@@ -1,23 +1,46 @@
 from telethon import TelegramClient, events
-import config
+from telethon.tl.types import PeerChannel
 
-# إعدادات التطبيق
-client = TelegramClient('forwarder', config.API_ID, config.API_HASH)
+# بيانات حسابك الشخصي
+api_id = 'YOUR_API_ID'  # استبدل بـ API ID الخاص بك
+api_hash = 'YOUR_API_HASH'  # استبدل بـ API Hash الخاص بك
+phone_number = 'YOUR_PHONE_NUMBER'  # رقم هاتفك المستخدم في Telegram
 
-# الكود الخاص بالبوت
-@client.on(events.NewMessage())
-async def forward_message(event):
-    # اعادة توجيه الرسائل
-    try:
-        # التحقق من عدم تكرار الرسالة (اضافة شرط خاص هنا إذا أردت)
-        await event.forward_to(config.TARGET_USER)
-    except Exception as e:
-        print(f"Error: {e}")
+# القنوات التي تريد إعادة توجيه رسائلها، يتم تحديدها باستخدام الـ ID
+channel_ids = ['channel_id_1', 'channel_id_2']  # استبدل بـ معرفات القنوات التي تريدها
 
-# بدء البوت
-async def start_bot():
-    await client.start()
-    print("Bot is running...")
+# القناة أو المجموعة التي تريد إعادة توجيه الرسائل إليها
+target_group = 'target_group_username'  # على سبيل المثال: '@my_group'
 
-if __name__ == "__main__":
-    client.loop.run_until_complete(start_bot())
+# تخزين معرف الرسائل التي تم إعادة توجيهها (لتجنب التكرار)
+forwarded_message_ids = set()
+
+# إنشاء العميل
+client = TelegramClient('session_name', api_id, api_hash)
+
+# حدث الرسائل الجديدة
+@client.on(events.NewMessage)
+async def handler(event):
+    # تحقق إذا كانت الرسالة من قناة موجودة في القنوات المحددة
+    if isinstance(event.chat, PeerChannel) and str(event.chat.id) in channel_ids:
+        # إذا كانت الرسالة قد تم إعادة توجيهها مسبقًا (منع التكرار)
+        if event.message.id in forwarded_message_ids:
+            print("تم تجاهل الرسالة (مكررة).")
+            return
+        
+        # إضافة معرف الرسالة إلى قائمة الرسائل المعاد توجيهها
+        forwarded_message_ids.add(event.message.id)
+        
+        # إعادة توجيه الرسالة إلى المجموعة المستهدفة
+        await event.forward_to(target_group)
+        print(f"تمت إعادة توجيه الرسالة من {event.chat.title} إلى {target_group}")
+
+# تشغيل العميل
+async def main():
+    await client.start(phone_number)  # تسجيل الدخول باستخدام رقم الهاتف
+    print("العميل يعمل ...")
+    await client.run_until_disconnected()
+
+if __name__ == '__main__':
+    import asyncio
+    asyncio.run(main())
