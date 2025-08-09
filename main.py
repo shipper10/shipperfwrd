@@ -543,10 +543,15 @@ async def main():
     app.add_handler(CommandHandler("status", status_cmd))
 
     await app.initialize()
-    await app.start()
-    print("Bot started")
-    await app.updater.start_polling()
-    await app.updater.idle()
+
+    try:
+        # تشغيل البوت
+        await app.start_polling()
+    except asyncio.CancelledError:
+        print("Bot has been stopped.")
+    finally:
+        # التوقف عن استقبال التحديثات عند إيقاف البوت
+        await app.stop()
 
 if __name__ == "__main__":
     asyncio.run(main())
