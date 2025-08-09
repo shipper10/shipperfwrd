@@ -5,8 +5,8 @@ from telethon.tl.types import PeerChannel
 
 # بيانات API الخاصة بك
 api_id = '26075519'  # قم بوضع الـ API_ID هنا
-api_hash = '5819201f8de7de4ea548335e78a59696'  # قم بوضع الـ API_HASH هنا
-phone_number = '+249904085742'  # رقم هاتفك
+api_hash = '26075519'  # قم بوضع الـ API_HASH هنا
+phone_number = '5819201f8de7de4ea548335e78a59696'  # رقم هاتفك
 target_group_id = '-1002686274384'  # قم بوضع الـ ID الخاص بالمجموعة التي تريد إعادة التوجيه إليها
 
 # اسم الجلسة
@@ -20,8 +20,8 @@ processed_messages = set()
 
 # قائمة القنوات التي تريد إعادة التوجيه منها
 channels_to_forward = [
-    '-1001668684235',
-    '-1001595923708',
+    '-1001595923708',  # ضع هنا معرف القناة الأول
+    '-1001668684235',  # ضع هنا معرف القناة الثاني
 ]
 
 async def main():
@@ -33,9 +33,13 @@ async def main():
             # قم بإدخال الرمز يدويًا لتوثيق الدخول
             await client.sign_in(phone_number, input("Enter the code: "))
         else:
-            # إذا كانت الجلسة موجودة بالفعل
             print("تم التوثيق بنجاح!")
-        
+
+        # تحقق من الاتصال بالتيليجرام قبل المتابعة
+        if not client.is_connected():
+            print("جاري الاتصال بالتيليجرام...")
+            await client.connect()
+
         # تابع تلقي الرسائل من القنوات والمجموعات
         @client.on(events.NewMessage)
         async def handler(event):
@@ -49,8 +53,9 @@ async def main():
                         # إعادة توجيه الرسالة إلى المجموعة المحددة
                         await client.forward_messages(target_group_id, event.message)
                         print(f"تم إعادة توجيه الرسالة: {event.message.id}")
-        
-        # قم بتشغيل البوت بشكل مستمر
+
+        # قم بتشغيل العميل بشكل مستمر
+        print("العميل يعمل الآن ويستمع للرسائل الجديدة...")
         await client.run_until_disconnected()
 
     except AuthKeyError as e:
