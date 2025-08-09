@@ -2,15 +2,15 @@ from telethon import TelegramClient, events
 from telethon.tl.types import PeerChannel
 
 # بيانات حسابك الشخصي
-api_id = 'YOUR_API_ID'  # استبدل بـ API ID الخاص بك
-api_hash = 'YOUR_API_HASH'  # استبدل بـ API Hash الخاص بك
-phone_number = 'YOUR_PHONE_NUMBER'  # رقم هاتفك المستخدم في Telegram
+api_id = '26075519'  # استبدل بـ API ID الخاص بك
+api_hash = '5819201f8de7de4ea548335e78a59696'  # استبدل بـ API Hash الخاص بك
+phone_number = '+249904085742'  # رقم هاتفك المستخدم في Telegram
 
 # القنوات التي تريد إعادة توجيه رسائلها، يتم تحديدها باستخدام الـ ID
-channel_ids = ['channel_id_1', 'channel_id_2']  # استبدل بـ معرفات القنوات التي تريدها
+channel_ids = ['-1001668684235', '-1001668684235']  # استبدل بـ معرفات القنوات التي تريدها
 
 # القناة أو المجموعة التي تريد إعادة توجيه الرسائل إليها
-target_group = 'target_group_username'  # على سبيل المثال: '@my_group'
+target_group = '-1002686274384'  # على سبيل المثال: '@my_group'
 
 # تخزين معرف الرسائل التي تم إعادة توجيهها (لتجنب التكرار)
 forwarded_message_ids = set()
