@@ -1,0 +1,22 @@
+# koyeb.yaml
+apiVersion: v1
+name: telegram-forwarder
+type: web
+ports:
+  - port: 8000
+    protocol: http
+docker:
+  dockerfile: Dockerfile
+envs:
+  - key: API_ID
+    value: "26075519"
+  - key: API_HASH
+    value: "5819201f8de7de4ea548335e78a59696"
+  - key: TARGET_GROUP
+    value: "-1002686274384"
+scaling:
+  min: 1
+  max: 1
+  autoscaling: true
+regions:
+  - fra
