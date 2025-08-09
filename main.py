@@ -1,4 +1,5 @@
 import os
+import asyncio
 from telethon import TelegramClient, events
 
 # تأكد من إنشاء مجلد للجلسة في المسار الذي تعمل فيه
