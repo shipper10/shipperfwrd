@@ -9,11 +9,11 @@ session_name = '1BJWap1sBu4B_MI3Ons8go-nv9Fk5TAekMcl0GoG2it9aZqw7BP7ZKIpem39ZgjI
 
 # المعرفات الخاصة بالقنوات/المجموعات
 source_channel_ids = [
-    'source_channel_id1',
-    'source_channel_id2',
+    '-1001595923708',
+    '-1001668684235',
     # أضف المزيد من القنوات هنا
 ]
-target_chat_id = 'target_chat_id'  # المعرف الخاص بالقناة/المجموعة المستهدفة
+target_chat_id = '-1002686274384'  # المعرف الخاص بالقناة/المجموعة المستهدفة
 
 # إنشاء العميل باستخدام الجلسة المحفوظة
 client = TelegramClient(session_name, api_id, api_hash)
