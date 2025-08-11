@@ -18,7 +18,7 @@ if not SOURCE_CHATS or not TARGET_CHATS:
 
 client = TelegramClient(StringSession(STRING_SESSION), API_ID, API_HASH)
 album_buffer = {}
-ALBUM_DELAY = 1  # ثانية واحدة
+ALBUM_DELAY = 3  # ثانية واحدة
 
 # ---- health server ----
 async def handle_root(request):
