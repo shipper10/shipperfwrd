@@ -10,15 +10,8 @@ import time
 API_ID = int(os.environ.get("API_ID"))
 API_HASH = os.environ.get("API_HASH")
 STRING_SESSION = os.environ.get("STRING_SESSION")  # string session
-
-# فلترة القيم الفارغة + مسافات
-SOURCES = [s.strip() for s in os.environ.get("SOURCES", "").split(",") if s.strip()]
-TARGET_CHATS = [t.strip() for t in os.environ.get("TARGET_CHATS", "").split(",") if t.strip()]
-
-if not SOURCES:
-    print("⚠️ لا يوجد مصادر (SOURCES) صحيحة، سيتم تجاهل استقبال الرسائل.")
-if not TARGET_CHATS:
-    print("⚠️ لا يوجد وجهات (TARGET_CHATS) صحيحة، لن يتم إعادة التوجيه.")
+SOURCES = os.environ.get("SOURCES", "").split(",")  # مثال: "source1,source2"
+TARGET_CHATS = os.environ.get("TARGET_CHATS", "").split(",")  # مثال: "dest1,dest2"
 
 client = TelegramClient(StringSession(STRING_SESSION), API_ID, API_HASH)
 
@@ -41,18 +34,19 @@ async def send_with_source(dest, messages, chat_username):
     captions = []
 
     for m in sorted(messages, key=lambda x: x.id):
+        # أي نوع من الميديا
         if m.photo or m.video or m.document or m.audio or m.voice:
             files.append(await m.download_media())
-        elif m.message:
+        elif m.message:  # النصوص
             captions.append(m.message)
 
+    # تجميع الكابتشن
     caption_text = captions[0] if captions else ""
-    source_link = f"https://t.me/{chat_username}/{messages[0].id}" if chat_username else ""
-    if source_link:
-        if caption_text:
-            caption_text += f"\n\n[📎 المصدر]({source_link})"
-        else:
-            caption_text = f"[📎 المصدر]({source_link})"
+    source_link = f"https://t.me/{chat_username}/{messages[0].id}"
+    if caption_text:
+        caption_text += f"\n\n[📎 المصدر]({source_link})"
+    else:
+        caption_text = f"[📎 المصدر]({source_link})"
 
     if files:
         await client.send_file(dest, files, caption=caption_text, parse_mode="markdown")
@@ -77,11 +71,11 @@ async def album_watcher():
     while True:
         now = time.time()
         for gid in list(album_buffer.keys()):
-            if now - album_buffer[gid]["last_time"] >= 3:
+            if now - album_buffer[gid]["last_time"] >= 3:  # 3 ثواني مهلة
                 await flush_album(gid)
         await asyncio.sleep(1)
 
-@client.on(events.NewMessage(chats=SOURCES if SOURCES else None))
+@client.on(events.NewMessage(chats=SOURCES))
 async def handler(event):
     msg = event.message
     chat = await event.get_chat()
@@ -103,4 +97,7 @@ async def handler(event):
 # ===== تشغيل البوت و Flask معاً =====
 if __name__ == "__main__":
     threading.Thread(target=run_flask).start()
-    print("Bot is running...
+    print("Bot is running...")
+    client.start()
+    client.loop.create_task(album_watcher())
+    client.run_until_disconnected()
