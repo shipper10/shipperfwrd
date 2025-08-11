@@ -1,30 +1,40 @@
-import os
 from telethon import TelegramClient, events
+from telethon.sessions import StringSession
+import os
 
-# الحصول على المتغيرات من بيئة التشغيل (من Koyeb)
-API_ID = int(os.environ.get("API_ID"))
-API_HASH = os.environ.get("API_HASH")
-TARGET_GROUP = int(os.environ.get("TARGET_GROUP"))
+# بيانات من المتغيرات البيئية
+API_ID = int(os.getenv("API_ID"))
+API_HASH = os.getenv("API_HASH")
+STRING_SESSION = os.getenv("STRING_SESSION")
 
-# قائمة بقنوات المصدر (تأكد من أن حسابك عضو فيها)
-SOURCE_CHANNELS = [
-    -1001668684235,  # مثال: معرف القناة الأولى
-    -1001595923708,  # مثال: معرف القناة الثانية
-]
+# تحويل القوائم النصية إلى أرقام
+SOURCE_CHATS = [int(x) for x in os.getenv("SOURCE_CHATS", "").split(",") if x.strip()]
+TARGET_CHATS = [int(x) for x in os.getenv("TARGET_CHATS", "").split(",") if x.strip()]
 
-# تهيئة الكلاينت مع ملف الجلسة الثابت
-# "my_account" هو اسم ملف الجلسة الذي قمت بإنشائه
-client = TelegramClient('my_account', API_ID, API_HASH)
+if not SOURCE_CHATS or not TARGET_CHATS:
+    raise ValueError("❌ يجب تحديد SOURCE_CHATS و TARGET_CHATS في المتغيرات البيئية.")
 
-@client.on(events.NewMessage(chats=SOURCE_CHANNELS))
-async def forward_handler(event):
-    try:
-        await client.forward_messages(TARGET_GROUP, event.message)
-    except Exception as e:
-        print(f"حدث خطأ أثناء إعادة التوجيه: {e}")
+client = TelegramClient(StringSession(STRING_SESSION), API_ID, API_HASH)
 
-print("برنامج إعادة التوجيه يعمل باستخدام Telethon...")
+@client.on(events.NewMessage(chats=SOURCE_CHATS))
+async def smart_forward(event):
+    for target in TARGET_CHATS:
+        try:
+            # المحاولة الأولى: إعادة التوجيه المباشر
+            await client.forward_messages(target, event.message)
+            print(f"📨 تم توجيه الرسالة من {event.chat_id} إلى {target} مباشرة")
+        except Exception as e:
+            print(f"⚠️ فشل التوجيه المباشر إلى {target}: {e} — سيتم نسخ المحتوى")
+            try:
+                # إذا فشل التوجيه، نعيد رفع المحتوى
+                if event.message.media:
+                    await client.send_file(target, event.message.media, caption=event.message.message or "")
+                else:
+                    await client.send_message(target, event.message.message)
+                print(f"📤 تم نسخ الرسالة من {event.chat_id} إلى {target}")
+            except Exception as e2:
+                print(f"❌ فشل نسخ الرسالة إلى {target}: {e2}")
 
-# تشغيل الكلاينت
+print(f"✅ البوت شغال وينتظر رسائل من {SOURCE_CHATS} ليرسلها إلى {TARGET_CHATS}...")
 client.start()
 client.run_until_disconnected()
