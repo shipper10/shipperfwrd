@@ -1,128 +1,59 @@
+# main.py
+import os
+import asyncio
+from aiohttp import web
 from telethon import TelegramClient, events
 from telethon.sessions import StringSession
-import asyncio
-import os
-from flask import Flask
-import threading
-import time
 
-# ===== إعدادات الاتصال =====
-API_ID = int(os.environ.get("API_ID"))
-API_HASH = os.environ.get("API_HASH")
-STRING_SESSION = os.environ.get("STRING_SESSION")
-SOURCE_NAMES = os.environ.get("SOURCES", "").split(",")
-TARGET_NAMES = os.environ.get("TARGET_CHATS", "").split(",")
+API_ID = int(os.getenv("API_ID"))
+API_HASH = os.getenv("API_HASH")
+STRING_SESSION = os.getenv("STRING_SESSION")
+PORT = int(os.getenv("PORT", "8080"))
+
+SOURCE_CHATS = [int(x) for x in os.getenv("SOURCE_CHATS", "").split(",") if x.strip()]
+TARGET_CHATS = [int(x) for x in os.getenv("TARGET_CHATS", "").split(",") if x.strip()]
+
+if not SOURCE_CHATS or not TARGET_CHATS:
+    raise ValueError("حدد SOURCE_CHATS و TARGET_CHATS")
 
 client = TelegramClient(StringSession(STRING_SESSION), API_ID, API_HASH)
 
-# ===== Flask Health Check =====
-app = Flask(__name__)
+# --- health HTTP server ---
+async def handle_root(request):
+    # يمكنك هنا إضافة منطق فحص صحة أعمق (مثل التحقق من حالة client.connected)
+    status = 200 if client.is_connected() else 503
+    return web.Response(text="OK" if status == 200 else "NOT READY", status=status)
 
-@app.route("/")
-def home():
-    return "OK", 200
+async def start_http_server():
+    app = web.Application()
+    app.router.add_get("/", handle_root)
+    app.router.add_get("/health", handle_root)  # مسار بديل إن رغبت
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, "0.0.0.0", PORT)
+    await site.start()
+    print(f"HTTP health server running on port {PORT}")
 
-def run_flask():
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 8080)))
-
-# ===== تجميع الألبومات =====
-album_buffer = {}
-
-async def send_with_source(dest, messages, chat_username):
-    files = []
-    captions = []
-
-    for m in sorted(messages, key=lambda x: x.id):
-        if m.photo or m.video or m.document or m.audio or m.voice:
-            files.append(await m.download_media())
-        elif m.message:
-            captions.append(m.message)
-
-    caption_text = captions[0] if captions else ""
-    source_link = f"https://t.me/{chat_username}/{messages[0].id}"
-    if caption_text:
-        caption_text += f"\n\n[📎 المصدر]({source_link})"
-    else:
-        caption_text = f"[📎 المصدر]({source_link})"
-
-    if files:
-        await client.send_file(dest, files, caption=caption_text, parse_mode="markdown")
-    else:
-        await client.send_message(dest, caption_text, parse_mode="markdown")
-
-async def flush_album(gid):
-    if gid not in album_buffer:
-        return
-    data = album_buffer.pop(gid)
-    messages = data["messages"]
-    protected = getattr(messages[0], "protected_content", False)
-    chat_username = data["chat_username"]
-
-    for dest in TARGET_ENTITIES:
-        if protected:
-            await send_with_source(dest, messages, chat_username)
-        else:
-            await client.forward_messages(dest, messages)
-
-async def album_watcher():
-    while True:
-        now = time.time()
-        for gid in list(album_buffer.keys()):
-            if now - album_buffer[gid]["last_time"] >= 3:
-                await flush_album(gid)
-        await asyncio.sleep(1)
-
-@client.on(events.NewMessage(chats=lambda _: SOURCE_ENTITIES))
-async def handler(event):
-    msg = event.message
-    chat = await event.get_chat()
-    gid = getattr(msg, "grouped_id", None)
-    protected = getattr(msg, "protected_content", False)
-
-    if gid:
-        if gid not in album_buffer:
-            album_buffer[gid] = {
-                "messages": [],
-                "last_time": time.time(),
-                "chat_username": chat.username
-            }
-        album_buffer[gid]["messages"].append(msg)
-        album_buffer[gid]["last_time"] = time.time()
-    else:
-        for dest in TARGET_ENTITIES:
-            if protected:
-                await send_with_source(dest, [msg], chat.username)
+# --- telegram handlers (مثال مبسّط) ---
+@client.on(events.NewMessage(chats=SOURCE_CHATS))
+async def handle_message(event):
+    # هنا ضع كود إعادة الإرسال/التجميع الذي تفضله
+    for target in TARGET_CHATS:
+        try:
+            if event.message.media:
+                await client.send_file(target, event.message.media, caption=event.message.message or "")
             else:
-                await client.forward_messages(dest, msg)
-
-async def init_entities():
-    global SOURCE_ENTITIES, TARGET_ENTITIES
-    SOURCE_ENTITIES = []
-    TARGET_ENTITIES = []
-
-    print("🔍 جاري التحقق من القنوات/المجموعات...")
-
-    for name in SOURCE_NAMES:
-        try:
-            ent = await client.get_entity(name.strip())
-            SOURCE_ENTITIES.append(ent)
-            print(f"✅ مصدر جاهز: {name}")
+                await client.send_message(target, event.message.message or "")
         except Exception as e:
-            print(f"⚠️ فشل في جلب المصدر {name}: {e}")
+            print("Send error:", e)
 
-    for name in TARGET_NAMES:
-        try:
-            ent = await client.get_entity(name.strip())
-            TARGET_ENTITIES.append(ent)
-            print(f"✅ وجهة جاهزة: {name}")
-        except Exception as e:
-            print(f"⚠️ فشل في جلب الوجهة {name}: {e}")
+# --- تشغيل متزامن ---
+async def main():
+    await client.start()
+    # شغّل HTTP server كـ task منفصل
+    asyncio.create_task(start_http_server())
+    print("Telegram client started.")
+    await client.run_until_disconnected()
 
-# ===== تشغيل البوت و Flask معاً =====
 if __name__ == "__main__":
-    threading.Thread(target=run_flask).start()
-    print("Bot is running...")
-    client.start()
-    client.loop.run_until_complete(init_entities())
-    client.loop.create_task(album_watcher())
-    client.run_until_disconnected()
+    asyncio.run(main())
