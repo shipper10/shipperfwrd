@@ -39,16 +39,27 @@ async def start_http_server():
 async def send_with_source(dest, messages, chat_username):
     files = []
     caption = None
+    entities = None
+
     for m in messages:
         if m.media:
             files.append(await m.download_media())
         if m.message and not caption:
             caption = m.message
+            entities = m.entities  # حفظ التنسيق
+
     if caption and chat_username:
         caption += f"\n\n@{chat_username}"
     elif chat_username:
         caption = f"@{chat_username}"
-    await client.send_file(dest, files, caption=caption)
+
+    await client.send_file(
+        dest,
+        files,
+        caption=caption,
+        formatting_entities=entities,
+        parse_mode=None
+    )
 
 async def flush_album(gid):
     if gid not in album_buffer:
@@ -63,9 +74,16 @@ async def flush_album(gid):
             await send_with_source(dest, messages, chat_username)
         else:
             captions = [m.message for m in messages if m.message]
+            entities = messages[0].entities if captions else None
             if captions:
                 files = [await m.download_media() for m in sorted(messages, key=lambda x: x.id) if m.media]
-                await client.send_file(dest, files, caption=captions[0])
+                await client.send_file(
+                    dest,
+                    files,
+                    caption=captions[0],
+                    formatting_entities=entities,
+                    parse_mode=None
+                )
             else:
                 await client.forward_messages(dest, messages)
 
@@ -96,9 +114,20 @@ async def handle_message(event):
                 await send_with_source(dest, [msg], chat.username)
             else:
                 if msg.media:
-                    await client.send_file(dest, msg.media, caption=msg.message or "")
+                    await client.send_file(
+                        dest,
+                        msg.media,
+                        caption=msg.message or "",
+                        formatting_entities=msg.entities,
+                        parse_mode=None
+                    )
                 else:
-                    await client.send_message(dest, msg.message or "")
+                    await client.send_message(
+                        dest,
+                        msg.message or "",
+                        formatting_entities=msg.entities,
+                        parse_mode=None
+                    )
 
 # ---- main ----
 async def main():
