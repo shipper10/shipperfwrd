@@ -1,7 +1,6 @@
-# main.py
 import os
-import asyncio
 import time
+import asyncio
 from aiohttp import web
 from telethon import TelegramClient, events
 from telethon.sessions import StringSession
@@ -18,8 +17,10 @@ if not SOURCE_CHATS or not TARGET_CHATS:
     raise ValueError("حدد SOURCE_CHATS و TARGET_CHATS")
 
 client = TelegramClient(StringSession(STRING_SESSION), API_ID, API_HASH)
+album_buffer = {}
+ALBUM_DELAY = 1  # ثانية واحدة
 
-# ====== HTTP Health Check ======
+# ---- health server ----
 async def handle_root(request):
     status = 200 if client.is_connected() else 503
     return web.Response(text="OK" if status == 200 else "NOT READY", status=status)
@@ -34,31 +35,20 @@ async def start_http_server():
     await site.start()
     print(f"HTTP health server running on port {PORT}")
 
-# ====== Album Handling ======
-album_buffer = {}  # {grouped_id: {"messages": [], "last_time": float, "chat_username": str}}
-
+# ---- helper ----
 async def send_with_source(dest, messages, chat_username):
-    """إعادة رفع الميديا أو النصوص مع رابط المصدر"""
     files = []
-    captions = []
-
-    for m in sorted(messages, key=lambda x: x.id):
+    caption = None
+    for m in messages:
         if m.media:
             files.append(await m.download_media())
-        elif m.message:
-            captions.append(m.message)
-
-    caption_text = captions[0] if captions else ""
-    source_link = f"https://t.me/{chat_username}/{messages[0].id}"
-    if caption_text:
-        caption_text += f"\n\n[📎 المصدر]({source_link})"
-    else:
-        caption_text = f"[📎 المصدر]({source_link})"
-
-    if files:
-        await client.send_file(dest, files, caption=caption_text, parse_mode="markdown")
-    else:
-        await client.send_message(dest, caption_text, parse_mode="markdown")
+        if m.message and not caption:
+            caption = m.message
+    if caption and chat_username:
+        caption += f"\n\n@{chat_username}"
+    elif chat_username:
+        caption = f"@{chat_username}"
+    await client.send_file(dest, files, caption=caption)
 
 async def flush_album(gid):
     if gid not in album_buffer:
@@ -72,7 +62,6 @@ async def flush_album(gid):
         if protected:
             await send_with_source(dest, messages, chat_username)
         else:
-            # البحث عن أول كابتشن في الألبوم
             captions = [m.message for m in messages if m.message]
             if captions:
                 files = [await m.download_media() for m in sorted(messages, key=lambda x: x.id) if m.media]
@@ -83,12 +72,12 @@ async def flush_album(gid):
 async def album_watcher():
     while True:
         now = time.time()
-        for gid in list(album_buffer.keys()):
-            if now - album_buffer[gid]["last_time"] >= 1:  # مهلة 1 ثانية
-                await flush_album(gid)
+        to_flush = [gid for gid, data in album_buffer.items() if now - data["last_time"] >= ALBUM_DELAY]
+        for gid in to_flush:
+            await flush_album(gid)
         await asyncio.sleep(0.5)
 
-# ====== Telegram Event ======
+# ---- telegram handlers ----
 @client.on(events.NewMessage(chats=SOURCE_CHATS))
 async def handle_message(event):
     msg = event.message
@@ -106,9 +95,12 @@ async def handle_message(event):
             if protected:
                 await send_with_source(dest, [msg], chat.username)
             else:
-                await client.forward_messages(dest, msg)
+                if msg.media:
+                    await client.send_file(dest, msg.media, caption=msg.message or "")
+                else:
+                    await client.send_message(dest, msg.message or "")
 
-# ====== Run Bot ======
+# ---- main ----
 async def main():
     await client.start()
     asyncio.create_task(start_http_server())
