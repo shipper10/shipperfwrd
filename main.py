@@ -11,16 +11,27 @@ BOT_TOKEN = os.environ.get('BOT_TOKEN', 'YOUR_BOT_TOKEN')
 
 async def handle_documents(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
-    هذه الدالة الرئيسية التي تعالج جميع الرسائل التي تحتوي على مستندات في الدردشات الخاصة.
-    تقوم بإضافة جميع المستندات إلى قائمة انتظار لإعادة إرسالها كمقاطع صوتية.
+    هذه الدالة الرئيسية التي تعالج الرسائل المستندة إلى الشروط الداخلية.
+    تقوم بإضافة المستندات المؤهلة إلى قائمة انتظار لإعادة إرسالها كمقاطع صوتية.
     """
     print(f"DEBUG: تم استدعاء دالة handle_documents لرسالة من الدردشة {update.effective_chat.id}")
     print(f"DEBUG: محتوى الرسالة: {update.message}")
 
     message = update.message
     
-    # لا توجد فحوصات داخلية هنا لنوع المستند،
-    # سيتم إضافته مباشرة إلى قائمة الانتظار لمحاولة إعادة إرساله كملف صوتي.
+    # ******** بداية منطق الفلترة الداخلية ********
+    # التحقق من أن الرسالة في محادثة خاصة
+    if not message.chat or message.chat.type != 'private':
+        print(f"DEBUG: الرسالة ID: {message.message_id} ليست في محادثة خاصة. نوع الدردشة: {message.chat.type}. تجاهل.")
+        return # تجاهل إذا لم تكن دردشة خاصة
+
+    # التحقق مما إذا كانت الرسالة تحتوي على مستند
+    if not message.document:
+        print(f"DEBUG: الرسالة ID: {message.message_id} لا تحتوي على مستند. تجاهل.")
+        # يمكن إرسال رسالة للمستخدم هنا إذا أردت إخباره بأنك تعالج المستندات فقط
+        # await update.effective_chat.send_message("أنا أعالج المستندات فقط.")
+        return # تجاهل إذا لم يكن مستندًا
+    # ******** نهاية منطق الفلترة الداخلية ********
 
     # إذا كانت هذه أول رسالة في دفعة، نبدأ مؤقتاً
     if 'file_queue' not in context.user_data:
@@ -116,16 +127,9 @@ def main():
     # إضافة معالج الأوامر
     application.add_handler(CommandHandler("start", start_command))
 
-    # إضافة معالج لجميع المستندات في المحادثات الخاصة
-    # باستخدام دالة lambda كفلتر مخصص مباشر
-    application.add_handler(MessageHandler(
-        lambda update: (
-            update.message and
-            update.message.document and
-            update.message.chat and update.message.chat.type == 'private'
-        ),
-        handle_documents
-    ))
+    # إضافة معالج لجميع الرسائل الواردة.
+    # الفلتر الأكثر بساطة الذي يجب أن يعمل في أي إصدار، وجميع الفحوصات تتم داخل الدالة.
+    application.add_handler(MessageHandler(filters.Update.MESSAGES, handle_documents))
 
     # تشغيل البوت
     print("DEBUG: بدء تشغيل البوت (polling).")
