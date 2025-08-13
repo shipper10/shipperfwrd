@@ -1,57 +1,104 @@
-from telegram import Update
-from telegram.ext import Application, CommandHandler, MessageHandler, ContextTypes, filters
 import os
+import threading
+import time
+import requests
+from flask import Flask
+from telegram import Update
+from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
 
-# بيئة التشغيل
-TOKEN = os.getenv("TOKEN", "ضع_التوكن_هنا")
-WEBHOOK_URL = os.getenv("WEBHOOK_URL", "https://APPNAME.koyeb.app")  # غير APPNAME باسم تطبيقك
+TOKEN = os.getenv("BOT_TOKEN")  # ضع التوكن هنا أو في متغير بيئة
 
-# تخزين الملفات مؤقتاً لكل مستخدم
-user_batches = {}
+# -----------------------------
+# متغير مؤقت لتخزين الملفات المستلمة
+# -----------------------------
+user_batches = {}  # {user_id: [list_of_files]}
 
+# -----------------------------
+# أوامر البوت
+# -----------------------------
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("أرسل لي دفعة ملفات MP3 وسأعيدها كمقاطع موسيقية بنفس الترتيب 🎵")
+    await update.message.reply_text("أرسل دفعة ملفات، وعندما تنتهي أرسل كلمة: تم ✅")
 
-async def handle_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def handle_files(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    file_info = None
+
+    # تحديد نوع الملف
+    if update.message.document:
+        file_info = update.message.document.file_id
+    elif update.message.audio:
+        file_info = update.message.audio.file_id
+    elif update.message.voice:
+        file_info = update.message.voice.file_id
+    elif update.message.video:
+        file_info = update.message.video.file_id
+    elif update.message.photo:
+        file_info = update.message.photo[-1].file_id  # أكبر جودة للصورة
+
+    if file_info:
+        user_batches.setdefault(user_id, []).append(file_info)
+        await update.message.reply_text(f"📥 تم استلام ملف رقم {len(user_batches[user_id])}")
+
+async def finish_batch(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
 
-    # إذا الملف MP3
-    if update.message.document and update.message.document.mime_type == "audio/mpeg":
-        if user_id not in user_batches:
-            user_batches[user_id] = []
+    if user_id not in user_batches or not user_batches[user_id]:
+        await update.message.reply_text("❌ لا يوجد ملفات محفوظة")
+        return
 
-        # تخزين ترتيب الملفات
-        user_batches[user_id].append(update.message.document.file_id)
+    await update.message.reply_text("🔄 جاري إرسال الملفات بالترتيب...")
+    for file_id in user_batches[user_id]:
+        try:
+            await update.message.reply_document(file_id)
+        except:
+            try:
+                await update.message.reply_photo(file_id)
+            except:
+                try:
+                    await update.message.reply_audio(file_id)
+                except:
+                    await update.message.reply_video(file_id)
 
-        await update.message.reply_text(f"تم استلام الملف {len(user_batches[user_id])} 🎶\n"
-                                        "أرسل باقي الملفات أو اكتب /send لإرسالها.")
-    else:
-        await update.message.reply_text("أرسل ملف MP3 فقط.")
+    # مسح الملفات بعد الإرسال
+    user_batches[user_id] = []
 
-async def send_batch(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    if user_id in user_batches and user_batches[user_id]:
-        await update.message.reply_text("جارٍ إرسال الملفات بالترتيب 🎼")
-        for file_id in user_batches[user_id]:
-            await update.message.reply_audio(audio=file_id)
-        user_batches[user_id] = []
-    else:
-        await update.message.reply_text("لا يوجد ملفات لإرسالها.")
-
-def main():
-    app = Application.builder().token(TOKEN).build()
+# -----------------------------
+# تشغيل البوت
+# -----------------------------
+def run_bot():
+    app = ApplicationBuilder().token(TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("send", send_batch))
-    app.add_handler(MessageHandler(filters.Document.ALL, handle_audio))
+    app.add_handler(MessageHandler(filters.TEXT & filters.Regex("(?i)تم"), finish_batch))
+    app.add_handler(MessageHandler(filters.Document.ALL | filters.AUDIO | filters.VOICE | filters.VIDEO | filters.PHOTO, handle_files))
 
-    # تشغيل البوت على Koyeb بالويب هوك
-    app.run_webhook(
-        listen="0.0.0.0",
-        port=8000,
-        url_path=TOKEN,
-        webhook_url=f"{WEBHOOK_URL}/{TOKEN}"
-    )
+    app.run_polling()
 
+# -----------------------------
+# Flask Keep-Alive
+# -----------------------------
+flask_app = Flask(__name__)
+
+@flask_app.route("/")
+def home():
+    return "I am alive"
+
+def run_flask():
+    flask_app.run(host="0.0.0.0", port=8000)
+
+def keep_alive_ping():
+    url = "http://127.0.0.1:8000"
+    while True:
+        try:
+            requests.get(url)
+        except Exception as e:
+            print(f"Ping failed: {e}")
+        time.sleep(300)  # كل 5 دقائق
+
+# -----------------------------
+# تشغيل الكل
+# -----------------------------
 if __name__ == "__main__":
-    main()
+    threading.Thread(target=run_bot).start()
+    threading.Thread(target=run_flask).start()
+    threading.Thread(target=keep_alive_ping).start()
