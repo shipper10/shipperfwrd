@@ -1,65 +1,51 @@
 import os
-import telebot
-from flask import Flask, request
+import asyncio
+from telegram import Update
+from telegram.ext import Application, MessageHandler, filters, ContextTypes, CommandHandler
 
-TOKEN = os.environ.get("BOT_TOKEN")
-WEBHOOK_URL = os.environ.get("WEBHOOK_URL")
-
-if not TOKEN:
+BOT_TOKEN = os.environ.get('BOT_TOKEN')
+if not BOT_TOKEN:
     raise ValueError("BOT_TOKEN environment variable is not set")
-if not WEBHOOK_URL:
-    raise ValueError("WEBHOOK_URL environment variable is not set")
 
-bot = telebot.TeleBot(TOKEN, threaded=False)
-server = Flask(__name__)
+async def handle_documents(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    message = update.message
+    if not message.chat or message.chat.type != 'private':
+        return
+    if not message.document:
+        return
+    if 'file_queue' not in context.user_data:
+        context.user_data['file_queue'] = []
+        asyncio.create_task(process_file_queue(update, context))
+    context.user_data['file_queue'].append(message)
 
-@bot.message_handler(content_types=['document'])
-def handle_mp3_document(message):
-    try:
-        filename = message.document.file_name
-        if not filename.lower().endswith('.mp3'):
-            bot.reply_to(message, "⚠️ الملف المرسل ليس بصيغة MP3")
-            return
+async def process_file_queue(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await asyncio.sleep(1.5)
+    messages = context.user_data.pop('file_queue', [])
+    if not messages:
+        return
+    messages.sort(key=lambda m: m.message_id)
+    await update.effective_chat.send_message(f"تم استلام {len(messages)} ملف. جاري إعادة الإرسال...")
+    for message in messages:
+        file_id_to_send = message.document.file_id if message.document else None
+        if file_id_to_send:
+            try:
+                await context.bot.send_audio(chat_id=update.effective_chat.id, audio=file_id_to_send)
+            except Exception as e:
+                await update.effective_chat.send_message(f"❌ حدث خطأ أثناء معالجة المستند: {e}")
+    await update.effective_chat.send_message("✅ اكتمل الإرسال!")
 
-        file_info = bot.get_file(message.document.file_id)
-        downloaded_file = bot.download_file(file_info.file_path)
+async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    welcome_message = (
+        "أهلاً بك في بوت إعادة إرسال المستندات كمقاطع صوتية! 🎶\n\n"
+        "أرسل لي أي مستند MP3 في محادثة خاصة، وسأعيد إرساله لك كمقطع صوتي."
+    )
+    await update.message.reply_text(welcome_message)
 
-        temp_path = os.path.join('/tmp', filename)
-        with open(temp_path, 'wb') as f:
-            f.write(downloaded_file)
+def main():
+    application = Application.builder().token(BOT_TOKEN).build()
+    application.add_handler(CommandHandler("start", start_command))
+    application.add_handler(MessageHandler(filters.Update.MESSAGES, handle_documents))
+    application.run_polling()
 
-        with open(temp_path, 'rb') as audio_file:
-            bot.send_audio(message.chat.id, audio_file)
-
-        os.remove(temp_path)
-    except Exception as e:
-        bot.reply_to(message, f"❌ حدث خطأ أثناء المعالجة: {e}")
-
-@server.route(f'/{TOKEN}', methods=['POST'])
-def webhook_handler():
-    try:
-        update_json = request.get_data(as_text=True)
-        if not update_json:
-            return "No data received", 400
-        update = telebot.types.Update.de_json(update_json)
-        bot.process_new_updates([update])
-    except Exception as e:
-        return f"Error processing update: {e}", 400
-    return "OK", 200
-
-@server.route("/setwebhook")
-def set_webhook():
-    bot.remove_webhook()
-    webhook_full_url = f"{WEBHOOK_URL}{TOKEN}"
-    success = bot.set_webhook(url=webhook_full_url, drop_pending_updates=True)
-    if success:
-        return f"✅ Webhook set to {webhook_full_url}", 200
-    return "❌ Failed to set webhook", 500
-
-@server.route("/")
-def index():
-    return "✅ Bot is running and healthy!", 200
-
-if __name__ == "__main__":
-    port = int(os.environ.get('PORT', 8000))
-    server.run(host="0.0.0.0", port=port, debug=True)
+if __name__ == '__main__':
+    main()
