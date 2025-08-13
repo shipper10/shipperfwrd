@@ -1,141 +1,43 @@
 import os
-import asyncio
-from telegram import Update
-from telegram.ext import Application, MessageHandler, filters, ContextTypes, CommandHandler
+import telebot
+from flask import Flask, request
 
-# --- الإعدادات الأساسية ---
-# استبدل 'YOUR_BOT_TOKEN' بالتوكن الخاص ببوتك أو استخدم متغيرات البيئة في Koyeb
-BOT_TOKEN = os.environ.get('BOT_TOKEN', 'YOUR_BOT_TOKEN')
+TOKEN = os.environ.get("BOT_TOKEN", "PUT_YOUR_TELEGRAM_BOT_TOKEN_HERE")
+bot = telebot.TeleBot(TOKEN)
+server = Flask(__name__)
 
-# --- الدوال الأساسية للبوت ---
+@bot.message_handler(content_types=['document'])
+def handle_mp3_document(message):
+    try:
+        if not message.document.file_name.lower().endswith('.mp3'):
+            bot.reply_to(message, "الملف المرسل ليس بصيغة MP3")
+            return
 
-async def handle_documents(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """
-    هذه الدالة الرئيسية التي تعالج الرسائل المستندة إلى الشروط الداخلية.
-    تقوم بإضافة المستندات المؤهلة إلى قائمة انتظار لإعادة إرسالها كمقاطع صوتية.
-    """
-    print(f"DEBUG: تم استدعاء دالة handle_documents لرسالة من الدردشة {update.effective_chat.id}")
-    print(f"DEBUG: محتوى الرسالة: {update.message}")
+        file_info = bot.get_file(message.document.file_id)
+        downloaded_file = bot.download_file(file_info.file_path)
 
-    message = update.message
-    
-    # ******** بداية منطق الفلترة الداخلية ********
-    # التحقق من أن الرسالة في محادثة خاصة
-    if not message.chat or message.chat.type != 'private':
-        print(f"DEBUG: الرسالة ID: {message.message_id} ليست في محادثة خاصة. نوع الدردشة: {message.chat.type}. تجاهل.")
-        return # تجاهل إذا لم تكن دردشة خاصة
+        with open(message.document.file_name, 'wb') as f:
+            f.write(downloaded_file)
 
-    # التحقق مما إذا كانت الرسالة تحتوي على مستند
-    if not message.document:
-        print(f"DEBUG: الرسالة ID: {message.message_id} لا تحتوي على مستند. تجاهل.")
-        # يمكن إرسال رسالة للمستخدم هنا إذا أردت إخباره بأنك تعالج المستندات فقط
-        # await update.effective_chat.send_message("أنا أعالج المستندات فقط.")
-        return # تجاهل إذا لم يكن مستندًا
-    # ******** نهاية منطق الفلترة الداخلية ********
+        with open(message.document.file_name, 'rb') as audio_file:
+            bot.send_audio(message.chat.id, audio_file, title=message.document.file_name)
 
-    # إذا كانت هذه أول رسالة في دفعة، نبدأ مؤقتاً
-    if 'file_queue' not in context.user_data:
-        context.user_data['file_queue'] = []
-        # ننتظر فترة قصيرة (1.5 ثانية) لتجميع كل الملفات التي قد تصل في الألبوم
-        asyncio.create_task(process_file_queue(update, context))
+        os.remove(message.document.file_name)
+    except Exception as e:
+        bot.reply_to(message, f"حدث خطأ: {e}")
 
-    # نضيف الرسالة الحالية إلى قائمة الانتظار
-    context.user_data['file_queue'].append(update.message)
+@server.route('/' + TOKEN, methods=['POST'])
+def get_message():
+    json_str = request.get_data().decode('UTF-8')
+    update = telebot.types.Update.de_json(json_str)
+    bot.process_new_updates([update])
+    return "!", 200
 
+@server.route("/")
+def webhook():
+    bot.remove_webhook()
+    bot.set_webhook(url=os.environ.get("WEBHOOK_URL") + TOKEN)
+    return "Webhook set!", 200
 
-async def process_file_queue(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """
-    بعد انتهاء فترة الانتظار، تبدأ هذه الدالة في معالجة الملفات المجمعة.
-    """
-    print("DEBUG: بدء انتظار 1.5 ثانية لمعالجة قائمة الملفات.")
-    await asyncio.sleep(1.5)  # انتظار لتجميع كل الملفات
-
-    messages = context.user_data.pop('file_queue', [])
-    if not messages:
-        print("DEBUG: قائمة الملفات فارغة بعد الانتظار. لا يوجد شيء لمعالجته.")
-        return
-
-    print(f"DEBUG: سيتم معالجة {len(messages)} ملف.")
-    # فرز الرسائل بناءً على معرف الرسالة للحفاظ على الترتيب
-    messages.sort(key=lambda m: m.message_id)
-
-    # إرسال رسالة للمستخدم لإعلامه ببدء المعالجة
-    await update.effective_chat.send_message(f"تم استلام {len(messages)} ملف. جاري إعادة الإرسال...")
-
-    for message in messages:
-        print(f"DEBUG: فحص الرسالة ID: {message.message_id}")
-        file_id_to_send = None
-        file_name = "ملف غير معروف" # تم تغيير النص الافتراضي
-
-        # نحاول الحصول على file_id من message.audio أولاً، ثم من message.document
-        if message.audio:
-            file_id_to_send = message.audio.file_id
-            file_name = message.audio.file_name or "ملف صوتي"
-            print(f"DEBUG: تم التعرف على ملف صوتي (message.audio): {file_name}")
-        elif message.document: # الآن نتحقق من أي مستند
-            file_id_to_send = message.document.file_id
-            file_name = message.document.file_name or "مستند"
-            print(f"DEBUG: تم التعرف على مستند: {file_name} (نوع MIME: {message.document.mime_type if message.document.mime_type else 'غير معروف'})")
-        else:
-            # هذا الشرط لا ينبغي أن يتم الوصول إليه، لأن الفلتر الخارجي يضمن وجود مستند.
-            print(f"DEBUG: الرسالة ID: {message.message_id} ليست مستندًا. (خطأ فلترة غير متوقع).")
-            continue
-
-        if file_id_to_send:
-            try:
-                print(f"DEBUG: محاولة إعادة إرسال الملف {file_name} كملف صوتي بمعرف {file_id_to_send}")
-                await context.bot.send_audio(
-                    chat_id=update.effective_chat.id,
-                    audio=file_id_to_send
-                )
-                print(f"DEBUG: تم إعادة إرسال الملف {file_name} بنجاح كملف صوتي.")
-            except Exception as e:
-                print(f"ERROR: حدث خطأ أثناء محاولة إعادة إرسال الملف {file_name} كملف صوتي: {e}")
-                # إبلاغ المستخدم بوجود مشكلة في التحويل إذا لم يكن الملف صوتيًا
-                await update.effective_chat.send_message(f"عفواً، حدث خطأ أثناء معالجة المستند: '{file_name}'. (ربما ليس ملفاً صوتياً قابلاً للتحويل).")
-        else:
-            print(f"DEBUG: لا يوجد file_id_to_send صالح للرسالة ID: {message.message_id}")
-            await update.effective_chat.send_message(f"عفواً، لم أتمكن من العثور على معرّف ملف صالح للمستند ID: {message.message_id}")
-    
-    await update.effective_chat.send_message("✅ اكتمل الإرسال!")
-    print("DEBUG: تم إرسال رسالة 'اكتمل الإرسال!'.")
-
-
-async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """
-    دالة ترحيبية عند إرسال /start
-    """
-    print(f"DEBUG: تم استدعاء أمر /start من الدردشة {update.effective_chat.id}")
-    welcome_message = """
-    أهلاً بك في بوت إعادة إرسال المستندات كمقاطع صوتية! 🎶
-
-    أرسل لي أي مستند في محادثة خاصة، وسأحاول إعادة إرساله لك كمقطع صوتي.
-    إذا كان المستند غير صوتي، قد يحدث خطأ في التحويل.
-    """
-    await update.message.reply_text(welcome_message)
-
-
-# --- تشغيل البوت ---
-def main():
-    """
-    الدالة الرئيسية لتشغيل البوت.
-    """
-    print("البوت قيد التشغيل...")
-    
-    application = Application.builder().token(BOT_TOKEN).build()
-
-    # إضافة معالج الأوامر
-    application.add_handler(CommandHandler("start", start_command))
-
-    # إضافة معالج لجميع الرسائل الواردة.
-    # الفلتر الأكثر بساطة الذي يجب أن يعمل في أي إصدار، وجميع الفحوصات تتم داخل الدالة.
-    application.add_handler(MessageHandler(filters.Update.MESSAGES, handle_documents))
-
-    # تشغيل البوت
-    print("DEBUG: بدء تشغيل البوت (polling).")
-    application.run_polling()
-    print("DEBUG: تم إيقاف تشغيل البوت.")
-
-
-if __name__ == '__main__':
-    main()
+if __name__ == "__main__":
+    server.run(host="0.0.0.0", port=int(os.environ.get('PORT', 5000)))
