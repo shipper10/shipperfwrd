@@ -4,6 +4,7 @@ from telegram import Update
 from telegram.ext import Application, MessageHandler, filters, ContextTypes, CommandHandler
 
 # --- الإعدادات الأساسية ---
+# استبدل 'YOUR_BOT_TOKEN' بالتوكن الخاص ببوتك أو استخدم متغيرات البيئة في Koyeb
 BOT_TOKEN = os.environ.get('BOT_TOKEN', 'YOUR_BOT_TOKEN')
 
 # --- الدوال الأساسية للبوت ---
@@ -51,6 +52,8 @@ async def process_file_queue(update: Update, context: ContextTypes.DEFAULT_TYPE)
         file_id_to_send = None
         file_name = "ملف صوتي غير معروف"
 
+        # الآن بما أن الفلتر هو filters.Document، يجب أن يكون message.document متاحاً
+        # لكن لا يزال من الجيد التحقق من message.audio أيضاً
         if message.audio: # فلتر لرسائل الصوت المباشرة
             file_id_to_send = message.audio.file_id
             file_name = message.audio.file_name or "ملف صوتي"
@@ -61,8 +64,9 @@ async def process_file_queue(update: Update, context: ContextTypes.DEFAULT_TYPE)
             print(f"DEBUG: تم التعرف على ملف صوتي (message.document) من نوع: {message.document.mime_type}, الاسم: {file_name}")
         else:
             print(f"DEBUG: الرسالة ID: {message.message_id} ليست ملف صوتي أو مستند صوتي. نوع الرسالة: {message}")
-            # تخطي الرسائل التي ليست ملفات صوتية
-            continue
+            # إذا لم تكن الرسالة ملف صوتي، يمكننا إرسال رسالة خطأ أو تجاهلها
+            await update.effective_chat.send_message(f"عفواً، تم استلام ملف غير صوتي أو غير مدعوم (ID: {message.message_id}). يرجى إرسال ملف صوتي.")
+            continue # تخطي الرسائل التي ليست ملفات صوتية حقيقية
 
         if file_id_to_send:
             try:
@@ -107,8 +111,9 @@ def main():
     # إضافة معالج الأوامر
     application.add_handler(CommandHandler("start", start_command))
 
-    # إضافة معالج للملفات الصوتية (سواء كانت مستندات صوتية أو رسائل صوتية)
-    application.add_handler(MessageHandler(filters.AUDIO & filters.ChatType.PRIVATE, handle_audio_files))
+    # إضافة معالج لجميع المستندات (Documents) في الدردشات الخاصة
+    # الآن سيستجيب البوت لأي مستند ترسله في محادثة خاصة
+    application.add_handler(MessageHandler(filters.Document & filters.ChatType.PRIVATE, handle_audio_files))
 
     # تشغيل البوت
     print("DEBUG: بدء تشغيل البوت (polling).")
