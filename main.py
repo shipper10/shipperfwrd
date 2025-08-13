@@ -1,9 +1,9 @@
 import os
 import asyncio
-from telegram import Update
+from telegram import Update, InputFile
 from telegram.ext import Application, MessageHandler, filters, ContextTypes, CommandHandler
-from mutagen.mp3 import MP3
 from mutagen.id3 import ID3, APIC
+from tempfile import NamedTemporaryFile
 
 BOT_TOKEN = os.environ.get('BOT_TOKEN')
 if not BOT_TOKEN:
@@ -33,32 +33,26 @@ async def process_file_queue(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 file = await context.bot.get_file(message.document.file_id)
                 local_path = await file.download_to_drive()
 
-                title = None
-                performer = None
-                album = None
-                genre = None
-                year = None
-                thumb_data = None
+                title = performer = album = genre = year = None
+                thumb_file = None
 
                 try:
-                    audio = MP3(local_path.name)
                     id3_tags = ID3(local_path.name)
                     title = id3_tags.get('TIT2').text[0] if id3_tags.get('TIT2') else None
                     performer = id3_tags.get('TPE1').text[0] if id3_tags.get('TPE1') else None
                     album = id3_tags.get('TALB').text[0] if id3_tags.get('TALB') else None
                     genre = id3_tags.get('TCON').text[0] if id3_tags.get('TCON') else None
                     year = id3_tags.get('TDRC').text[0] if id3_tags.get('TDRC') else None
-                    apic_tag = id3_tags.getall('APIC')
-                    if apic_tag:
-                        thumb_data = apic_tag[0].data
+
+                    apic = id3_tags.getall('APIC')
+                    if apic:
+                        img_data = apic[0].data
+                        tmp_thumb = NamedTemporaryFile(delete=False)
+                        tmp_thumb.write(img_data)
+                        tmp_thumb.close()
+                        thumb_file = tmp_thumb.name
                 except Exception:
                     pass
-
-                thumb_path = None
-                if thumb_data:
-                    thumb_path = local_path.name + "_cover.jpg"
-                    with open(thumb_path, 'wb') as img:
-                        img.write(thumb_data)
 
                 with open(local_path.name, 'rb') as f:
                     await context.bot.send_audio(
@@ -67,7 +61,7 @@ async def process_file_queue(update: Update, context: ContextTypes.DEFAULT_TYPE)
                         filename=message.document.file_name,
                         title=title,
                         performer=performer,
-                        thumb=open(thumb_path, 'rb') if thumb_path else None
+                        thumbnail=InputFile(thumb_file) if thumb_file else None
                     )
 
                 details = ""
@@ -90,7 +84,7 @@ async def process_file_queue(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "أرسل لي أي مستند MP3 في محادثة خاصة، وسأعيد إرساله لك كمقطع صوتي مع جميع بياناته وصورته من التاج ID3 إن وجدت."
+        "أرسل لي أي مستند MP3 في محادثة خاصة، وسأعيد إرساله لك كمقطع صوتي مع جميع بياناته وصورة الغلاف من التاج ID3 إن وجدت."
     )
 
 def main():
