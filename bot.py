@@ -1,70 +1,67 @@
 import os
-import uuid
-import asyncio
-from collections import deque
 from flask import Flask, request
 from telegram import Update
-from telegram.ext import Application, MessageHandler, ContextTypes, filters
+from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
+import asyncio
+from collections import defaultdict
 
-TOKEN = os.getenv("BOT_TOKEN")
-WEBHOOK_URL = os.getenv("WEBHOOK_URL")  # رابط Koyeb
+TOKEN = os.getenv("TOKEN", "ضع_التوكن_هنا")
 
-queue = deque()
-processing = False
-
-# Telegram application
+app = Flask(__name__)
 application = Application.builder().token(TOKEN).build()
 
-async def process_queue(context: ContextTypes.DEFAULT_TYPE):
-    global processing
-    while queue:
-        chat_id, file_id, file_name = queue.popleft()
-        try:
-            ext = os.path.splitext(file_name)[1].lower()
-            temp_filename = f"{uuid.uuid4()}{ext}"
+# تخزين مؤقت لدفعات الملفات
+user_batches = defaultdict(list)
 
-            file = await context.bot.get_file(file_id)
-            await file.download_to_drive(temp_filename)
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        "أرسل دفعة من ملفات MP3 🎵 وسأعيدها لك كمقاطع موسيقية بنفس الترتيب.\n"
+        "بعد ما تخلص الإرسال، أرسل الأمر /done لبدء المعالجة."
+    )
 
-            with open(temp_filename, "rb") as audio:
-                await context.bot.send_audio(chat_id=chat_id, audio=audio)
+async def handle_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
 
-            os.remove(temp_filename)
-        except Exception as e:
-            await context.bot.send_message(chat_id, f"❌ خطأ: {e}")
-        await asyncio.sleep(0.2)
-    processing = False
-
-async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    global processing
-    if update.message.document:
-        queue.append((
-            update.message.chat_id,
-            update.message.document.file_id,
-            update.message.document.file_name
-        ))
-        if not processing:
-            processing = True
-            await process_queue(context)
+    # دعم إرسال الملف كمستند أو كمقطع صوتي
+    if update.message.document and update.message.document.mime_type == "audio/mpeg":
+        user_batches[user_id].append(update.message.document.file_id)
+        await update.message.reply_text(f"📥 تمت إضافة الملف {update.message.document.file_name} للدفعة.")
+    elif update.message.audio:
+        user_batches[user_id].append(update.message.audio.file_id)
+        await update.message.reply_text(f"📥 تمت إضافة الملف {update.message.audio.file_name} للدفعة.")
     else:
-        await update.message.reply_text("📄 أرسل لي ملف MP3 وسأحوله لموسيقى.")
+        await update.message.reply_text("⚠ أرسل ملف MP3 فقط.")
 
-application.add_handler(MessageHandler(filters.Document.AUDIO, handle_document))
+async def done(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    if not user_batches[user_id]:
+        await update.message.reply_text("⚠ لا يوجد ملفات في الدفعة.")
+        return
 
-# Flask app
-flask_app = Flask(__name__)
+    await update.message.reply_text("⏳ جاري إرسال الملفات بالترتيب...")
 
-@flask_app.route("/")
-def index():
-    return "Bot is alive!", 200
+    for file_id in user_batches[user_id]:
+        await update.message.reply_audio(audio=file_id)
 
-@flask_app.route(f"/{TOKEN}", methods=["POST"])
+    user_batches[user_id].clear()
+    await update.message.reply_text("✅ تم إرسال جميع الملفات بالترتيب.")
+
+application.add_handler(CommandHandler("start", start))
+application.add_handler(CommandHandler("done", done))
+application.add_handler(MessageHandler(filters.ALL, handle_audio))
+
+# ويب هوك
+@app.route(f'/{TOKEN}', methods=['POST'])
 def webhook():
     update = Update.de_json(request.get_json(force=True), application.bot)
-    application.update_queue.put_nowait(update)
+    asyncio.run(application.process_update(update))
     return "ok", 200
 
-if __name__ == "__main__":
-    import threading
-    threading.Thread(target=lambda: asyncio.run(application.initialize())).start()
-    flask_app.run(host="0.0.0.0", port=int(os.getenv("PORT", 5000)))
+# هيلث شيك
+@app.route('/')
+def index():
+    return "Bot is running!", 200
+
+if __name__ == '__main__':
+    port = int(os.environ.get('PORT', 8000))
+    app.run(host='0.0.0.0', port=port)
