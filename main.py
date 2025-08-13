@@ -30,10 +30,13 @@ async def process_file_queue(update: Update, context: ContextTypes.DEFAULT_TYPE)
             try:
                 file = await context.bot.get_file(message.document.file_id)
                 file_path = file.file_path
-                await context.bot.send_audio(
-                    chat_id=update.effective_chat.id,
-                    audio=file_path
-                )
+                # تحميل الملف وإرساله كمقطع صوتي من خلال البيانات الثنائية بدلاً من الرابط
+                new_file = await file.download_to_drive()
+                with open(new_file.name, 'rb') as f:
+                    await context.bot.send_audio(
+                        chat_id=update.effective_chat.id,
+                        audio=f
+                    )
             except Exception as e:
                 await update.effective_chat.send_message(f"❌ حدث خطأ أثناء إعادة إرسال الملف '{message.document.file_name}': {e}")
     await update.effective_chat.send_message("✅ اكتمل الإرسال!")
