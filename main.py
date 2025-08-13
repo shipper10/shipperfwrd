@@ -26,18 +26,24 @@ async def process_file_queue(update: Update, context: ContextTypes.DEFAULT_TYPE)
     messages.sort(key=lambda m: m.message_id)
     await update.effective_chat.send_message(f"تم استلام {len(messages)} ملف. جاري إعادة الإرسال...")
     for message in messages:
-        file_id_to_send = message.document.file_id if message.document else None
-        if file_id_to_send:
+        if message.document and message.document.mime_type == 'audio/mpeg':
             try:
-                await context.bot.send_audio(chat_id=update.effective_chat.id, audio=file_id_to_send)
+                file = await context.bot.get_file(message.document.file_id)
+                await context.bot.send_audio(
+                    chat_id=update.effective_chat.id,
+                    audio=file.file_id,
+                    title=message.document.file_name or "ملف صوتي"
+                )
             except Exception as e:
-                await update.effective_chat.send_message(f"❌ حدث خطأ أثناء معالجة المستند: {e}")
+                await update.effective_chat.send_message(f"❌ حدث خطأ أثناء إعادة إرسال الملف: {e}")
+        else:
+            await update.effective_chat.send_message(f"⚠️ الملف '{message.document.file_name}' ليس بصيغة MP3.")
     await update.effective_chat.send_message("✅ اكتمل الإرسال!")
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     welcome_message = (
         "أهلاً بك في بوت إعادة إرسال المستندات كمقاطع صوتية! 🎶\n\n"
-        "أرسل لي أي مستند MP3 في محادثة خاصة، وسأعيد إرساله لك كمقطع صوتي."
+        "أرسل لي أي مستند MP3 في محادثة خاصة، وسأعيد إرساله لك كمقطع صوتي قابل للتشغيل."
     )
     await update.message.reply_text(welcome_message)
 
