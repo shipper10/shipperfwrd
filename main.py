@@ -4,23 +4,20 @@ from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 from mutagen.mp3 import MP3
 from mutagen.id3 import ID3, APIC
+from mutagen.easyid3 import EasyID3
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "YOUR_BOT_TOKEN")
 cover_image = None
 
 async def set_cover(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    global cover_image
-    reply_msg = update.message.reply_to_message
-
-    # إذا كان الأمر رد على صورة
-    if reply_msg and reply_msg.photo:
-        file = await reply_msg.photo[-1].get_file()
+    if update.message.reply_to_message and update.message.reply_to_message.photo:
+        file = await update.message.reply_to_message.photo[-1].get_file()
         image_bytes = await file.download_as_bytearray()
+        global cover_image
         cover_image = bytes(image_bytes)
-        await update.message.reply_text("✅ تم تعيين الغلاف المخصص من الصورة المردود عليها.")
+        await update.message.reply_text("✅ تم تعيين الغلاف المخصص بنجاح من الرد.")
     else:
-        # الطريقة التقليدية - انتظار إرسال صورة جديدة
-        await update.message.reply_text("أرسل الآن الصورة التي تريد استخدامها كغلاف للمقاطع الصوتية.")
+        await update.message.reply_text("أرسل الآن الصورة أو قم بالرد على صورة بـ /setcover")
         context.user_data['waiting_for_cover'] = True
 
 async def clear_cover(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -38,6 +35,16 @@ def extract_cover_from_mp3(file_path):
         return None
     return None
 
+def extract_id3_tags(file_path):
+    try:
+        audio = EasyID3(file_path)
+        title = audio.get("title", [None])[0]
+        artist = audio.get("artist", [None])[0]
+        album = audio.get("album", [None])[0]
+        return title, artist, album
+    except Exception:
+        return None, None, None
+
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     global cover_image
     if context.user_data.get('waiting_for_cover'):
@@ -53,7 +60,10 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
     file_path = "temp.mp3"
     await file.download_to_drive(file_path)
 
-    title = update.message.document.file_name
+    # قراءة البيانات من الملف
+    title, artist, album = extract_id3_tags(file_path)
+
+    # إعداد الغلاف
     if cover_image:
         thumb_bytes = io.BytesIO(cover_image)
     else:
@@ -63,16 +73,16 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await context.bot.send_audio(
         chat_id=update.effective_chat.id,
         audio=open(file_path, 'rb'),
-        title=title,
+        title=title or update.message.document.file_name,
+        performer=artist or None,
         thumbnail=thumb_bytes if thumb_bytes else None
     )
     os.remove(file_path)
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "أرسل مستند MP3 وسأعيد إرساله كمقطع صوتي.\n"
-        "استخدم /setcover لتعيين غلاف مخصص (يمكنك الرد على صورة أو إرسال صورة بعد الأمر)،\n"
-        "واستخدم /clearcover لمسحه."
+        "أرسل مستند MP3 وسأعيد إرساله كمقطع صوتي بنفس البيانات والكوفر.\n"
+        "استخدم /setcover لتعيين غلاف مخصص (أو رد على صورة بـ /setcover)، و /clearcover لمسحه."
     )
 
 def main():
