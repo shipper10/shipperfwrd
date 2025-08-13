@@ -1,104 +1,92 @@
 import os
-import threading
-import time
-import requests
-from flask import Flask
+import asyncio
 from telegram import Update
-from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
+from telegram.ext import Application, MessageHandler, filters, ContextTypes, CommandHandler
 
-TOKEN = os.getenv("BOT_TOKEN")  # ضع التوكن هنا أو في متغير بيئة
+# --- الإعدادات الأساسية ---
+# استبدل 'YOUR_BOT_TOKEN' بالتوكن الخاص ببوتك أو استخدم متغيرات البيئة في Koyeb
+BOT_TOKEN = os.environ.get('BOT_TOKEN', 'YOUR_BOT_TOKEN')
 
-# -----------------------------
-# متغير مؤقت لتخزين الملفات المستلمة
-# -----------------------------
-user_batches = {}  # {user_id: [list_of_files]}
+# --- الدوال الأساسية للبوت ---
 
-# -----------------------------
-# أوامر البوت
-# -----------------------------
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("أرسل دفعة ملفات، وعندما تنتهي أرسل كلمة: تم ✅")
+async def handle_audio_files(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    هذه الدالة الرئيسية التي تعالج الرسائل التي تحتوي على ملفات.
+    تنتظر قليلاً لتجميع كل الملفات التي قد تصل في دفعة واحدة (ألبوم).
+    """
+    # إذا كانت هذه أول رسالة في دفعة، نبدأ مؤقتاً
+    if 'file_queue' not in context.user_data:
+        context.user_data['file_queue'] = []
+        # ننتظر فترة قصيرة (1.5 ثانية) لتجميع كل الملفات في الألبوم
+        asyncio.create_task(process_file_queue(update, context))
 
-async def handle_files(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    file_info = None
+    # نضيف الرسالة الحالية إلى قائمة الانتظار
+    context.user_data['file_queue'].append(update.message)
 
-    # تحديد نوع الملف
-    if update.message.document:
-        file_info = update.message.document.file_id
-    elif update.message.audio:
-        file_info = update.message.audio.file_id
-    elif update.message.voice:
-        file_info = update.message.voice.file_id
-    elif update.message.video:
-        file_info = update.message.video.file_id
-    elif update.message.photo:
-        file_info = update.message.photo[-1].file_id  # أكبر جودة للصورة
 
-    if file_info:
-        user_batches.setdefault(user_id, []).append(file_info)
-        await update.message.reply_text(f"📥 تم استلام ملف رقم {len(user_batches[user_id])}")
+async def process_file_queue(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    بعد انتهاء فترة الانتظار، تبدأ هذه الدالة في معالجة الملفات المجمعة.
+    """
+    await asyncio.sleep(1.5)  # انتظار لتجميع كل الملفات
 
-async def finish_batch(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-
-    if user_id not in user_batches or not user_batches[user_id]:
-        await update.message.reply_text("❌ لا يوجد ملفات محفوظة")
+    messages = context.user_data.pop('file_queue', [])
+    if not messages:
         return
 
-    await update.message.reply_text("🔄 جاري إرسال الملفات بالترتيب...")
-    for file_id in user_batches[user_id]:
-        try:
-            await update.message.reply_document(file_id)
-        except:
+    # فرز الرسائل بناءً على معرف الرسالة للحفاظ على الترتيب
+    messages.sort(key=lambda m: m.message_id)
+
+    # إرسال رسالة للمستخدم لإعلامه ببدء المعالجة
+    await update.effective_chat.send_message(f"تم استلام {len(messages)} ملف. جاري إعادة الإرسال...")
+
+    for message in messages:
+        # نتأكد أن الرسالة تحتوي على ملف وأن نوعه mp3
+        if message.document and message.document.mime_type == 'audio/mpeg':
             try:
-                await update.message.reply_photo(file_id)
-            except:
-                try:
-                    await update.message.reply_audio(file_id)
-                except:
-                    await update.message.reply_video(file_id)
+                # ببساطة نعيد إرسال الملف الصوتي باستخدام معرّف الملف (file_id)
+                # تليجرام سيقوم تلقائياً بمعالجته كملف صوتي قابل للتشغيل
+                await context.bot.send_audio(
+                    chat_id=update.effective_chat.id,
+                    audio=message.document.file_id
+                )
+            except Exception as e:
+                print(f"حدث خطأ: {e}")
+                await update.effective_chat.send_message(f"عفواً، حدث خطأ أثناء معالجة الملف: {message.document.file_name}")
+    
+    await update.effective_chat.send_message("✅ اكتمل الإرسال!")
 
-    # مسح الملفات بعد الإرسال
-    user_batches[user_id] = []
 
-# -----------------------------
-# تشغيل البوت
-# -----------------------------
-def run_bot():
-    app = ApplicationBuilder().token(TOKEN).build()
+async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    دالة ترحيبية عند إرسال /start
+    """
+    welcome_message = """
+    أهلاً بك في بوت إعادة إرسال MP3! 🎶
 
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(MessageHandler(filters.TEXT & filters.Regex("(?i)تم"), finish_batch))
-    app.add_handler(MessageHandler(filters.Document.ALL | filters.AUDIO | filters.VOICE | filters.VIDEO | filters.PHOTO, handle_files))
+    أرسل لي ملف MP3 أو مجموعة ملفات (ألبوم) وسأقوم بإعادة إرسالها لك كمقاطع صوتية قابلة للتشغيل مباشرة مع الحفاظ على بياناتها الأصلية.
+    """
+    await update.message.reply_text(welcome_message)
 
-    app.run_polling()
 
-# -----------------------------
-# Flask Keep-Alive
-# -----------------------------
-flask_app = Flask(__name__)
+# --- تشغيل البوت ---
+def main():
+    """
+    الدالة الرئيسية لتشغيل البوت.
+    """
+    print("البوت قيد التشغيل...")
+    
+    application = Application.builder().token(BOT_TOKEN).build()
 
-@flask_app.route("/")
-def home():
-    return "I am alive"
+    # إضافة معالج الأوامر
+    application.add_handler(CommandHandler("start", start_command))
 
-def run_flask():
-    flask_app.run(host="0.0.0.0", port=8000)
+    # إضافة معالج للملفات (Documents) من نوع mp3
+    application.add_handler(MessageHandler(filters.Document.MIME_TYPE & filters.ChatType.PRIVATE, handle_audio_files))
 
-def keep_alive_ping():
-    url = "http://127.0.0.1:8000"
-    while True:
-        try:
-            requests.get(url)
-        except Exception as e:
-            print(f"Ping failed: {e}")
-        time.sleep(300)  # كل 5 دقائق
+    # تشغيل البوت
+    application.run_polling()
 
-# -----------------------------
-# تشغيل الكل
-# -----------------------------
-if __name__ == "__main__":
-    threading.Thread(target=run_bot).start()
-    threading.Thread(target=run_flask).start()
-    threading.Thread(target=keep_alive_ping).start()
+
+if __name__ == '__main__':
+    main()
