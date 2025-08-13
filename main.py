@@ -26,24 +26,27 @@ def handle_mp3_document(message):
             bot.send_audio(message.chat.id, audio_file, title=filename)
 
         os.remove(filename)
-        bot.reply_to(message, "✅ تم تحويل المستند إلى ملف صوتي")
     except Exception as e:
         bot.reply_to(message, f"حدث خطأ: {e}")
 
 @server.route('/' + TOKEN, methods=['POST'])
 def get_message():
-    json_str = request.get_data().decode('UTF-8')
-    update = telebot.types.Update.de_json(json_str)
+    update = telebot.types.Update.de_json(request.stream.read().decode('utf-8'))
     bot.process_new_updates([update])
     return "OK", 200
 
-@server.route("/")
+@server.route("/setwebhook")
 def set_webhook():
-    bot.remove_webhook()
     if WEBHOOK_URL:
-        bot.set_webhook(url=WEBHOOK_URL + TOKEN)
+        bot.remove_webhook()
+        bot.set_webhook(url=f"{WEBHOOK_URL}{TOKEN}")
         return "Webhook set!", 200
     return "WEBHOOK_URL not configured", 500
 
+@server.route("/")
+def index():
+    return "Bot is running!", 200
+
 if __name__ == "__main__":
-    server.run(host="0.0.0.0", port=int(os.environ.get('PORT', 8000)))
+    port = int(os.environ.get('PORT', 8000))
+    server.run(host="0.0.0.0", port=port)
