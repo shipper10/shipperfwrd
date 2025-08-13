@@ -38,17 +38,20 @@ def handle_mp3_document(message):
 @server.route(f'/{TOKEN}', methods=['POST'])
 def webhook_handler():
     try:
-        update = telebot.types.Update.de_json(request.get_data(as_text=True))
+        update_json = request.get_data(as_text=True)
+        if not update_json:
+            return "No data received", 400
+        update = telebot.types.Update.de_json(update_json)
         bot.process_new_updates([update])
     except Exception as e:
-        return str(e), 400
+        return f"Error processing update: {e}", 400
     return "OK", 200
 
 @server.route("/setwebhook")
 def set_webhook():
     bot.remove_webhook()
     webhook_full_url = f"{WEBHOOK_URL}{TOKEN}"
-    success = bot.set_webhook(url=webhook_full_url)
+    success = bot.set_webhook(url=webhook_full_url, drop_pending_updates=True)
     if success:
         return f"✅ Webhook set to {webhook_full_url}", 200
     return "❌ Failed to set webhook", 500
@@ -59,4 +62,4 @@ def index():
 
 if __name__ == "__main__":
     port = int(os.environ.get('PORT', 8000))
-    server.run(host="0.0.0.0", port=port, threaded=False)
+    server.run(host="0.0.0.0", port=port, debug=True)
