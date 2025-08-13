@@ -113,7 +113,8 @@ def main():
 
     # إضافة معالج لجميع المستندات (Documents) في الدردشات الخاصة
     # الآن سيستجيب البوت لأي مستند ترسله في محادثة خاصة
-    application.add_handler(MessageHandler(filters.Document & filters.ChatType.PRIVATE, handle_audio_files))
+    # تم تغيير filters.Document إلى filters.Document() لتهيئة الكائن بشكل صحيح
+    application.add_handler(MessageHandler(filters.Document() & filters.ChatType.PRIVATE, handle_audio_files))
 
     # تشغيل البوت
     print("DEBUG: بدء تشغيل البوت (polling).")
