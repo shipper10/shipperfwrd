@@ -7,45 +7,6 @@ from telegram.ext import Application, MessageHandler, filters, ContextTypes, Com
 # استبدل 'YOUR_BOT_TOKEN' بالتوكن الخاص ببوتك أو استخدم متغيرات البيئة في Koyeb
 BOT_TOKEN = os.environ.get('BOT_TOKEN', 'YOUR_BOT_TOKEN')
 
-# --- دوال الفلترة المخصصة لتصحيح الأخطاء ---
-def document_audio_private_filter(update: Update) -> bool:
-    """
-    فلتر مخصص يتحقق مما إذا كانت الرسالة:
-    1. رسالة عادية (ليست فارغة)
-    2. تحتوي على مستند (Document)
-    3. نوع MIME للمستند يبدأ بـ 'audio/'
-    4. قادمة من محادثة خاصة (Private Chat)
-    تتضمن طباعة لتصحيح الأخطاء لمعرفة سبب عدم مرور الرسالة.
-    """
-    message = update.message
-    
-    if not message:
-        print("FILTER DEBUG: الرسالة فارغة. (False)")
-        return False
-    
-    # التحقق من أن الرسالة من مستخدم (تجاهل رسائل القنوات مثلاً)
-    if not message.from_user:
-        print(f"FILTER DEBUG: الرسالة {message.message_id} ليست من مستخدم. (False)")
-        return False
-
-    is_document = bool(message.document)
-    is_audio_mime = False
-    if is_document and message.document.mime_type:
-        is_audio_mime = message.document.mime_type.startswith('audio/')
-    
-    is_private_chat = bool(message.chat and message.chat.type == 'private')
-
-    print(f"\nFILTER DEBUG: فحص الرسالة ID: {message.message_id} من الدردشة {message.chat.id if message.chat else 'N/A'}:")
-    print(f"  - هل هي مستند؟: {is_document}")
-    print(f"  - هل نوع MIME للمستند صوتي؟ (MIME: {message.document.mime_type if is_document else 'N/A'}): {is_audio_mime}")
-    print(f"  - هل هي دردشة خاصة؟ (نوع الدردشة: {message.chat.type if message.chat else 'N/A'}): {is_private_chat}")
-    
-    filter_result = is_document and is_audio_mime and is_private_chat
-    print(f"  النتيجة النهائية للفلتر: {filter_result}\n")
-    
-    return filter_result
-
-
 # --- الدوال الأساسية للبوت ---
 
 async def handle_audio_files(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -111,7 +72,7 @@ async def process_file_queue(update: Update, context: ContextTypes.DEFAULT_TYPE)
             # هذا الشرط لا ينبغي أن يتم الوصول إليه بوجود الفلتر الجديد الدقيق،
             # لكن نتركه للتأكد من المرونة.
             print(f"DEBUG: الرسالة ID: {message.message_id} ليست ملف صوتي أو مستند صوتي. (خطأ فلترة غير متوقع).")
-            await update.effective_chat.send_message(f"عفواً، تم استلام ملف غير صوتي أو غير مدعوم (ID: {message.message_id}).")
+            # لا نرسل رسالة خطأ هنا لأن الفلتر الخارجي سيتولى عدم استدعاء الدالة.
             continue
 
         if file_id_to_send:
@@ -158,8 +119,13 @@ def main():
     application.add_handler(CommandHandler("start", start_command))
 
     # إضافة معالج للرسائل التي هي مستندات صوتية في محادثة خاصة فقط
-    # استخدام دالة فلترة مخصصة مع طباعة لتصحيح الأخطاء
-    application.add_handler(MessageHandler(filters.create(document_audio_private_filter), handle_audio_files))
+    # يتم دمج الفلاتر مباشرة باستخدام عامل التشغيل '&'
+    application.add_handler(MessageHandler(
+        filters.Document # الرسالة يجب أن تكون مستندًا
+        & filters.MimeType('audio/*') # ونوع MIME الخاص بها يجب أن يكون صوتيًا
+        & filters.ChatType.PRIVATE, # ويجب أن تكون في محادثة خاصة
+        handle_audio_files
+    ))
 
     # تشغيل البوت
     print("DEBUG: بدء تشغيل البوت (polling).")
