@@ -29,10 +29,12 @@ async def process_file_queue(update: Update, context: ContextTypes.DEFAULT_TYPE)
         if message.document and message.document.mime_type == 'audio/mpeg':
             try:
                 file = await context.bot.get_file(message.document.file_id)
+                file_path = file.file_path
                 await context.bot.send_audio(
                     chat_id=update.effective_chat.id,
-                    audio=file.file_id,
-                    title=message.document.file_name or "ملف صوتي"
+                    audio=file_path,
+                    title=message.document.file_name or "ملف صوتي",
+                    performer=" "
                 )
             except Exception as e:
                 await update.effective_chat.send_message(f"❌ حدث خطأ أثناء إعادة إرسال الملف: {e}")
