@@ -19,9 +19,8 @@ async def handle_documents(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     message = update.message
     
-    # *** التغيير هنا: تم إزالة الفحص is_audio_document. ***
-    # الآن، أي مستند يتم استلامه سيتم إضافته مباشرة إلى قائمة الانتظار
-    # لمحاولة إعادة إرساله كملف صوتي.
+    # لا توجد فحوصات داخلية هنا لنوع المستند،
+    # سيتم إضافته مباشرة إلى قائمة الانتظار لمحاولة إعادة إرساله كملف صوتي.
 
     # إذا كانت هذه أول رسالة في دفعة، نبدأ مؤقتاً
     if 'file_queue' not in context.user_data:
@@ -58,7 +57,6 @@ async def process_file_queue(update: Update, context: ContextTypes.DEFAULT_TYPE)
         file_name = "ملف غير معروف" # تم تغيير النص الافتراضي
 
         # نحاول الحصول على file_id من message.audio أولاً، ثم من message.document
-        # في حال كان المستند المُرسل هو في الأصل ملف صوتي، قد يكون متاحًا كـ message.audio
         if message.audio:
             file_id_to_send = message.audio.file_id
             file_name = message.audio.file_name or "ملف صوتي"
@@ -119,12 +117,14 @@ def main():
     application.add_handler(CommandHandler("start", start_command))
 
     # إضافة معالج لجميع المستندات في المحادثات الخاصة
-    # الفلتر الآن هو filters.Document() (أي نوع من المستندات) و filters.ChatType.PRIVATE (دردشة خاصة)
-    # لا يوجد فحص مسبق لنوع MIME هنا، سيتم المحاولة مباشرة لإعادة الإرسال كـ audio.
+    # باستخدام دالة lambda كفلتر مخصص مباشر
     application.add_handler(MessageHandler(
-        filters.Document() # الرسالة يجب أن تكون مستندًا (أي نوع من المستندات) - تم إضافة الأقواس!
-        & filters.ChatType.PRIVATE, # ويجب أن تكون في محادثة خاصة
-        handle_documents # تم تغيير اسم الدالة لتعكس أنها تعالج جميع المستندات
+        lambda update: (
+            update.message and
+            update.message.document and
+            update.message.chat and update.message.chat.type == 'private'
+        ),
+        handle_documents
     ))
 
     # تشغيل البوت
