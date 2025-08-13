@@ -44,7 +44,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 def main():
     application = Application.builder().token(BOT_TOKEN).build()
     application.add_handler(CommandHandler("start", start_command))
-    application.add_handler(MessageHandler(filters.Update.MESSAGES, handle_documents))
+    application.add_handler(MessageHandler(filters.ALL, handle_documents))
     application.run_polling()
 
 if __name__ == '__main__':
