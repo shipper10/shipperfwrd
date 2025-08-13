@@ -2,6 +2,8 @@ import os
 import asyncio
 from telegram import Update
 from telegram.ext import Application, MessageHandler, filters, ContextTypes, CommandHandler
+from mutagen.easyid3 import EasyID3
+from mutagen.mp3 import MP3
 
 BOT_TOKEN = os.environ.get('BOT_TOKEN')
 if not BOT_TOKEN:
@@ -29,13 +31,24 @@ async def process_file_queue(update: Update, context: ContextTypes.DEFAULT_TYPE)
         if message.document:
             try:
                 file = await context.bot.get_file(message.document.file_id)
-                file_path = file.file_path
-                # تحميل الملف وإرساله كمقطع صوتي من خلال البيانات الثنائية بدلاً من الرابط
-                new_file = await file.download_to_drive()
-                with open(new_file.name, 'rb') as f:
+                local_path = await file.download_to_drive()
+                title = message.document.file_name
+                performer = None
+
+                try:
+                    audio = MP3(local_path.name, ID3=EasyID3)
+                    title = audio.get('title', [title])[0]
+                    performer = audio.get('artist', [None])[0]
+                except Exception:
+                    pass
+
+                with open(local_path.name, 'rb') as f:
                     await context.bot.send_audio(
                         chat_id=update.effective_chat.id,
-                        audio=f
+                        audio=f,
+                        filename=message.document.file_name,
+                        title=title,
+                        performer=performer
                     )
             except Exception as e:
                 await update.effective_chat.send_message(f"❌ حدث خطأ أثناء إعادة إرسال الملف '{message.document.file_name}': {e}")
@@ -43,7 +56,7 @@ async def process_file_queue(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "أرسل لي أي مستند في محادثة خاصة، وسأعيد إرساله لك كمقطع صوتي قابل للتشغيل."
+        "أرسل لي أي مستند في محادثة خاصة، وسأعيد إرساله لك كمقطع صوتي قابل للتشغيل مع قراءة بياناته الأصلية."
     )
 
 def main():
