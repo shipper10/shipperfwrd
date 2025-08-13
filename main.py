@@ -41,18 +41,28 @@ async def process_file_queue(update: Update, context: ContextTypes.DEFAULT_TYPE)
     await update.effective_chat.send_message(f"تم استلام {len(messages)} ملف. جاري إعادة الإرسال...")
 
     for message in messages:
-        # نتأكد أن الرسالة تحتوي على ملف وأن نوعه mp3
-        if message.document and message.document.mime_type == 'audio/mpeg':
-            try:
-                # ببساطة نعيد إرسال الملف الصوتي باستخدام معرّف الملف (file_id)
-                # تليجرام سيقوم تلقائياً بمعالجته كملف صوتي قابل للتشغيل
-                await context.bot.send_audio(
-                    chat_id=update.effective_chat.id,
-                    audio=message.document.file_id
-                )
-            except Exception as e:
-                print(f"حدث خطأ: {e}")
-                await update.effective_chat.send_message(f"عفواً، حدث خطأ أثناء معالجة الملف: {message.document.file_name}")
+        # نتأكد أن الرسالة تحتوي على ملف صوتي
+        # يمكن أن يكون "صوت" (voice message) أو "مستند" (document) من نوع صوتي
+        if message.audio: # فلتر لرسائل الصوت المباشرة
+            file_id_to_send = message.audio.file_id
+            file_name = message.audio.file_name or "ملف صوتي"
+        elif message.document and message.document.mime_type and message.document.mime_type.startswith('audio/'):
+            file_id_to_send = message.document.file_id
+            file_name = message.document.file_name or "ملف صوتي"
+        else:
+            # تخطي الرسائل التي ليست ملفات صوتية
+            continue
+
+        try:
+            # ببساطة نعيد إرسال الملف الصوتي باستخدام معرّف الملف (file_id)
+            # تليجرام سيقوم تلقائياً بمعالجته كملف صوتي قابل للتشغيل
+            await context.bot.send_audio(
+                chat_id=update.effective_chat.id,
+                audio=file_id_to_send
+            )
+        except Exception as e:
+            print(f"حدث خطأ: {e}")
+            await update.effective_chat.send_message(f"عفواً، حدث خطأ أثناء معالجة الملف: {file_name}")
     
     await update.effective_chat.send_message("✅ اكتمل الإرسال!")
 
@@ -81,8 +91,9 @@ def main():
     # إضافة معالج الأوامر
     application.add_handler(CommandHandler("start", start_command))
 
-    # إضافة معالج للملفات (Documents) من نوع mp3
-    application.add_handler(MessageHandler(filters.Document.MIME_TYPE & filters.ChatType.PRIVATE, handle_audio_files))
+    # إضافة معالج للملفات الصوتية (سواء كانت مستندات صوتية أو رسائل صوتية)
+    # هذا الفلتر filters.AUDIO يغطي جميع أنواع الصوتيات
+    application.add_handler(MessageHandler(filters.AUDIO & filters.ChatType.PRIVATE, handle_audio_files))
 
     # تشغيل البوت
     application.run_polling()
