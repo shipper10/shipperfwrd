@@ -3,6 +3,6 @@ pyrogram
 asyncio
 flask
 aiohttp
-python-telegram-bot[webhooks]
+python-telegram-bot
 python-dotenv
 requests
