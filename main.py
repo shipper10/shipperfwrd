@@ -119,10 +119,10 @@ def main():
     application.add_handler(CommandHandler("start", start_command))
 
     # إضافة معالج لجميع المستندات في المحادثات الخاصة
-    # الفلتر الآن هو filters.Document (أي نوع من المستندات) و filters.ChatType.PRIVATE (دردشة خاصة)
+    # الفلتر الآن هو filters.Document() (أي نوع من المستندات) و filters.ChatType.PRIVATE (دردشة خاصة)
     # لا يوجد فحص مسبق لنوع MIME هنا، سيتم المحاولة مباشرة لإعادة الإرسال كـ audio.
     application.add_handler(MessageHandler(
-        filters.Document # الرسالة يجب أن تكون مستندًا (أي نوع من المستندات)
+        filters.Document() # الرسالة يجب أن تكون مستندًا (أي نوع من المستندات) - تم إضافة الأقواس!
         & filters.ChatType.PRIVATE, # ويجب أن تكون في محادثة خاصة
         handle_documents # تم تغيير اسم الدالة لتعكس أنها تعالج جميع المستندات
     ))
