@@ -5,3 +5,4 @@ flask
 aiohttp
 python-telegram-bot[webhooks]
 python-dotenv
+requests
