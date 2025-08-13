@@ -1,67 +1,57 @@
-import os
-from flask import Flask, request
 from telegram import Update
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
-import asyncio
-from collections import defaultdict
+from telegram.ext import Application, CommandHandler, MessageHandler, ContextTypes, filters
+import os
 
+# بيئة التشغيل
 TOKEN = os.getenv("TOKEN", "ضع_التوكن_هنا")
+WEBHOOK_URL = os.getenv("WEBHOOK_URL", "https://APPNAME.koyeb.app")  # غير APPNAME باسم تطبيقك
 
-app = Flask(__name__)
-application = Application.builder().token(TOKEN).build()
-
-# تخزين مؤقت لدفعات الملفات
-user_batches = defaultdict(list)
+# تخزين الملفات مؤقتاً لكل مستخدم
+user_batches = {}
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "أرسل دفعة من ملفات MP3 🎵 وسأعيدها لك كمقاطع موسيقية بنفس الترتيب.\n"
-        "بعد ما تخلص الإرسال، أرسل الأمر /done لبدء المعالجة."
-    )
+    await update.message.reply_text("أرسل لي دفعة ملفات MP3 وسأعيدها كمقاطع موسيقية بنفس الترتيب 🎵")
 
 async def handle_audio(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
 
-    # دعم إرسال الملف كمستند أو كمقطع صوتي
+    # إذا الملف MP3
     if update.message.document and update.message.document.mime_type == "audio/mpeg":
+        if user_id not in user_batches:
+            user_batches[user_id] = []
+
+        # تخزين ترتيب الملفات
         user_batches[user_id].append(update.message.document.file_id)
-        await update.message.reply_text(f"📥 تمت إضافة الملف {update.message.document.file_name} للدفعة.")
-    elif update.message.audio:
-        user_batches[user_id].append(update.message.audio.file_id)
-        await update.message.reply_text(f"📥 تمت إضافة الملف {update.message.audio.file_name} للدفعة.")
+
+        await update.message.reply_text(f"تم استلام الملف {len(user_batches[user_id])} 🎶\n"
+                                        "أرسل باقي الملفات أو اكتب /send لإرسالها.")
     else:
-        await update.message.reply_text("⚠ أرسل ملف MP3 فقط.")
+        await update.message.reply_text("أرسل ملف MP3 فقط.")
 
-async def done(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def send_batch(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    if not user_batches[user_id]:
-        await update.message.reply_text("⚠ لا يوجد ملفات في الدفعة.")
-        return
+    if user_id in user_batches and user_batches[user_id]:
+        await update.message.reply_text("جارٍ إرسال الملفات بالترتيب 🎼")
+        for file_id in user_batches[user_id]:
+            await update.message.reply_audio(audio=file_id)
+        user_batches[user_id] = []
+    else:
+        await update.message.reply_text("لا يوجد ملفات لإرسالها.")
 
-    await update.message.reply_text("⏳ جاري إرسال الملفات بالترتيب...")
+def main():
+    app = Application.builder().token(TOKEN).build()
 
-    for file_id in user_batches[user_id]:
-        await update.message.reply_audio(audio=file_id)
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("send", send_batch))
+    app.add_handler(MessageHandler(filters.Document.ALL, handle_audio))
 
-    user_batches[user_id].clear()
-    await update.message.reply_text("✅ تم إرسال جميع الملفات بالترتيب.")
+    # تشغيل البوت على Koyeb بالويب هوك
+    app.run_webhook(
+        listen="0.0.0.0",
+        port=8000,
+        url_path=TOKEN,
+        webhook_url=f"{WEBHOOK_URL}/{TOKEN}"
+    )
 
-application.add_handler(CommandHandler("start", start))
-application.add_handler(CommandHandler("done", done))
-application.add_handler(MessageHandler(filters.ALL, handle_audio))
-
-# ويب هوك
-@app.route(f'/{TOKEN}', methods=['POST'])
-def webhook():
-    update = Update.de_json(request.get_json(force=True), application.bot)
-    asyncio.run(application.process_update(update))
-    return "ok", 200
-
-# هيلث شيك
-@app.route('/')
-def index():
-    return "Bot is running!", 200
-
-if __name__ == '__main__':
-    port = int(os.environ.get('PORT', 8000))
-    app.run(host='0.0.0.0', port=port)
+if __name__ == "__main__":
+    main()
